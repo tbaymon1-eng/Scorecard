@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cypresswood Scorecard (6 players)</title>
+  <style>
+    :root{
+      /*
+        ALIGNMENT CONTROLS (tweak these 4 values to perfectly line up the input grid
+        over the white scoring boxes area in your image)
+      */
+      --grid-left: 2.8%;     /* move overlay left/right */
+      --grid-top: 37.5%;     /* move overlay up/down */
+      --grid-width: 94.2%;   /* overlay width */
+      --grid-height: 43.5%;  /* overlay height */
+
+      /* input look */
+      --cell-font-size: clamp(10px, 1.2vw, 16px);
+      --cell-padding: 0px;
+      --cell-radius: 0px;
+    }
+
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:#111;
+      color:#fff;
+    }
+
+    header{
+      padding:12px 16px;
+      display:flex;
+      gap:12px;
+      align-items:center;
+      justify-content:space-between;
+      flex-wrap:wrap;
+    }
+    header .left{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    button{
+      cursor:pointer;
+      border:1px solid #555;
+      background:#222;
+      color:#fff;
+      padding:8px 10px;
+      border-radius:8px;
+    }
+    button:hover{ background:#2a2a2a; }
+
+    .wrap{
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 12px 18px;
+    }
+
+    /* Scorecard stage */
+    .stage{
+      position: relative;
+      width: 100%;
+      background:#000;
+      border-radius: 12px;
+      overflow:hidden;
+      box-shadow: 0 10px 30px rgba(0,0,0,.45);
+    }
+    .stage img{
+      width:100%;
+      height:auto;
+      display:block;
+      user-select:none;
+      -webkit-user-drag:none;
+    }
+
+    /* Overlay grid that sits on top of the image */
+    .overlay{
+      position:absolute;
+      left: var(--grid-left);
+      top: var(--grid-top);
+      width: var(--grid-width);
+      height: var(--grid-height);
+
+      display:grid;
+      /* 18 holes + 3 totals columns = 21 columns */
+      grid-template-columns: repeat(21, 1fr);
+      /* 6 players */
+      grid-template-rows: repeat(6, 1fr);
+
+      gap: 0px; /* set >0 if you want spacing */
+      pointer-events: none; /* let only inputs capture clicks */
+    }
+
+    /* Make each input fill its grid cell */
+    .cell{
+      width: 100%;
+      height: 100%;
+      box-sizing:border-box;
+      padding: var(--cell-padding);
+      pointer-events: auto;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    input.score, input.total{
+      width: 100%;
+      height: 100%;
+      border: none;
+      outline: none;
+      background: transparent; /* keep the printed box visible */
+      color: #000;
+      text-align:center;
+      font-weight: 700;
+      font-size: var(--cell-font-size);
+      border-radius: var(--cell-radius);
+      appearance: textfield;
+    }
+
+    /* Optional: show active field a bit */
+    input.score:focus, input.total:focus{
+      outline: 2px solid rgba(0, 150, 255, .65);
+      outline-offset: -2px;
+      background: rgba(255,255,255,.20);
+    }
+
+    /* Reduce number spinners (Chrome) */
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button{
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    /* Totals are read-only; make them slightly darker */
+    input.total{
+      color:#111;
+      background: rgba(255,255,255,.12);
+    }
+
+    /* Small helper panel */
+    .panel{
+      margin-top:12px;
+      background:#1b1b1b;
+      border:1px solid #333;
+      border-radius:12px;
+      padding:12px;
+      line-height:1.35;
+    }
+    .panel code{ background:#111; padding:2px 6px; border-radius:6px; }
+    .hint{
+      opacity:.9;
+      font-size: 14px;
+    }
+    .tiny{
+      opacity:.75;
+      font-size: 12px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <header>
+      <div class="left">
+        <strong>Web Scorecard (6 Players)</strong>
+        <span class="hint">Auto totals: Out / In / Total</span>
+      </div>
+      <div class="right">
+        <button id="btnClear" type="button">Clear all</button>
+        <button id="btnSave" type="button">Save (this device)</button>
+        <button id="btnLoad" type="button">Load saved</button>
+      </div>
+    </header>
+
+    <div class="stage" id="stage">
+      <!-- Put your image in the same folder and update this filename -->
+      <img id="bg" src="D473D166-DAB3-480C-902C-A4297B7EA612.jpeg" alt="Scorecard background" />
+
+      <!-- Inputs overlay -->
+      <div class="overlay" id="overlay"></div>
+    </div>
+
+    <div class="panel">
+      <div class="hint">
+        If the input boxes don’t perfectly sit inside the white squares, adjust:
+        <code>--grid-left</code>, <code>--grid-top</code>, <code>--grid-width</code>, <code>--grid-height</code>
+        at the top of the CSS.
+      </div>
+      <div class="tiny" style="margin-top:8px;">
+        This starter assumes the scoring area is one big grid: 6 rows × (18 holes + Out + In + Total).
+        If you later want to align exactly to each printed column (including Hcp/Net), we can extend columns.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ====== CONFIG ======
+    const PLAYERS = 6;
+    const HOLES = 18;
+
+    // We place 21 columns: holes 1-18, then Out, In, Total
+    // Column indices (0-based): 0..17 = holes, 18 = out, 19 = in, 20 = total
+    const COL_OUT = 18;
+    const COL_IN  = 19;
+    const COL_TOT = 20;
+
+    const STORAGE_KEY = "cypresswood_scorecard_6p_v1";
+
+    // ====== BUILD GRID ======
+    const overlay = document.getElementById("overlay");
+
+    function makeInput({ player, hole, isTotal=false, totalType=null }) {
+      const inp = document.createElement("input");
+      inp.type = "number";
+      inp.inputMode = "numeric";
+      inp.pattern = "[0-9]*";
+      inp.min = "0";
+      inp.max = "20";
+
+      if (isTotal) {
+        inp.className = "total";
+        inp.readOnly = true;
+        inp.tabIndex = -1;
+        inp.dataset.player = player;
+        inp.dataset.total = totalType; // "out" | "in" | "tot"
+      } else {
+        inp.className = "score";
+        inp.dataset.player = player;
+        inp.dataset.hole = hole;
+        inp.addEventListener("input", () => {
+          calculateTotals(player);
+          autoSaveDebounced();
+        });
+      }
+      return inp;
+    }
+
+    function buildOverlay() {
+      overlay.innerHTML = "";
+
+      for (let p = 1; p <= PLAYERS; p++) {
+        for (let c = 0; c < 21; c++) {
+          const cell = document.createElement("div");
+          cell.className = "cell";
+
+          if (c < HOLES) {
+            // hole input
+            cell.appendChild(makeInput({ player: p, hole: c + 1 }));
+          } else if (c === COL_OUT) {
+            cell.appendChild(makeInput({ player: p, isTotal: true, totalType: "out" }));
+          } else if (c === COL_IN) {
+            cell.appendChild(makeInput({ player: p, isTotal: true, totalType: "in" }));
+          } else if (c === COL_TOT) {
+            cell.appendChild(makeInput({ player: p, isTotal: true, totalType: "tot" }));
+          }
+
+          overlay.appendChild(cell);
+        }
+      }
+    }
+
+    // ====== TOTALS ======
+    function getHoleValue(player, hole) {
+      const el = overlay.querySelector(`input.score[data-player="${player}"][data-hole="${hole}"]`);
+      if (!el) return 0;
+      const v = Number(el.value);
+      return Number.isFinite(v) ? v : 0;
+    }
+
+    function setTotal(player, type, value) {
+      const el = overlay.querySelector(`input.total[data-player="${player}"][data-total="${type}"]`);
+      if (el) el.value = value ? String(value) : "";
+    }
+
+    function calculateTotals(player) {
+      let out = 0, inn = 0;
+      for (let i = 1; i <= 9; i++) out += getHoleValue(player, i);
+      for (let i = 10; i <= 18; i++) inn += getHoleValue(player, i);
+
+      setTotal(player, "out", out);
+      setTotal(player, "in", inn);
+      setTotal(player, "tot", out + inn);
+    }
+
+    function calculateAll() {
+      for (let p = 1; p <= PLAYERS; p++) calculateTotals(p);
+    }
+
+    // ====== SAVE/LOAD (localStorage) ======
+    function serialize() {
+      const data = {};
+      for (let p = 1; p <= PLAYERS; p++) {
+        data[p] = {};
+        for (let h = 1; h <= HOLES; h++) {
+          const el = overlay.querySelector(`input.score[data-player="${p}"][data-hole="${h}"]`);
+          data[p][h] = el?.value ?? "";
+        }
+      }
+      return data;
+    }
+
+    function applyData(data) {
+      if (!data) return;
+      for (let p = 1; p <= PLAYERS; p++) {
+        for (let h = 1; h <= HOLES; h++) {
+          const el = overlay.querySelector(`input.score[data-player="${p}"][data-hole="${h}"]`);
+          if (el) el.value = (data?.[p]?.[h] ?? "");
+        }
+        calculateTotals(p);
+      }
+    }
+
+    function save() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(serialize()));
+    }
+
+    function load() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      try {
+        applyData(JSON.parse(raw));
+      } catch (e) {
+        console.warn("Load failed:", e);
+      }
+    }
+
+    function clearAll() {
+      overlay.querySelectorAll("input.score").forEach(i => i.value = "");
+      calculateAll();
+      save();
+    }
+
+    // Debounced autosave while typing
+    let t = null;
+    function autoSaveDebounced() {
+      if (t) clearTimeout(t);
+      t = setTimeout(save, 250);
+    }
+
+    // ====== WIRE UI ======
+    document.getElementById("btnClear").addEventListener("click", clearAll);
+    document.getElementById("btnSave").addEventListener("click", save);
+    document.getElementById("btnLoad").addEventListener("click", load);
+
+    // ====== INIT ======
+    buildOverlay();
+    load();
+    calculateAll();
+  </script>
+</body>
+</html>
